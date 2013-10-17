@@ -58,7 +58,7 @@ var ErrorCodes map[string]int = map[string]int{
 
 var UsageMessage string = "queued <port>"
 var ExtendedMessage string = `
-gridbot starts a netgrid node (either a master or slave)
+starts a queued daemon, a simple queue exposed on the network.
 
 Options
     -h, --help                          print this message

@@ -39,9 +39,10 @@ from collections import deque
 
 class Queue(object):
 
-    def __init__(self, host, port):
+    def __init__(self, host, port, debug=False):
         self.host = host
         self.port = port
+        self.debug = debug
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.conn.connect((self.host, self.port))
         self.lines = deque()
@@ -53,7 +54,8 @@ class Queue(object):
     def close(self):
         self.conn.shutdown(socket.SHUT_RDWR)
         self.read_thread.join()
-        print >>sys.stderr, "closed"
+        if self.debug:
+            print >>sys.stderr, "closed"
 
     def enque(self, data):
         msg = "ENQUE " + data.encode('base64').replace('\n', '') + '\n'

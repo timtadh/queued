@@ -29,6 +29,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+package edu.cwru.selab.queued;
 
 import java.net.Socket;
 import java.io;
@@ -36,11 +37,10 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.commons.codec.binary.Base64;
 import scala.io.Source;
 
-object QueueClient {
+class Queued(host:String, port:Int) {
 
   val lines = new LinkedBlockingQueue[String];
-
-  val socket = new Socket("localhost", 8080)
+  val socket = new Socket(host, port)
   val writer = new io.OutputStreamWriter(socket.getOutputStream())
   val reader = Source.fromInputStream(socket.getInputStream()).bufferedReader()
 
@@ -56,6 +56,13 @@ object QueueClient {
       }
     }
   })
+
+  read_thread.start()
+
+  def stop() {
+    socket.close()
+    read_thread.join()
+  }
 
   def send(msg:String) {
     writer.write(msg)
@@ -108,22 +115,23 @@ object QueueClient {
     return line._2
   }
 
+}
+
+object MainQueued {
   def main(args: Array[String]) {
-    read_thread.start()
+    val queue = new Queued("localhost", 8080)
     try {
-      enque("asdf")
-      enque("asdf")
-      enque("asdf")
-      println(deque())
-      println(deque())
-      println(deque())
-      println(deque())
+      queue.enque("asdf")
+      queue.enque("asdf")
+      queue.enque("asdf")
+      println(queue.deque())
+      println(queue.deque())
+      println(queue.deque())
+      println(queue.deque())
     } catch {
       case e:java.lang.IndexOutOfBoundsException => println("queue empty")
     } finally {
-      socket.close()
-      read_thread.join()
+      queue.stop()
     }
   }
 }
-

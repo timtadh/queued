@@ -45,6 +45,7 @@ class Queue(object):
         self.debug = debug
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.conn.connect((self.host, self.port))
+        self.queue_lock = threading.Lock()
         self.lines = deque()
         self.lines_cv = threading.Condition()
         self.read_thread = threading.Thread(target=self.listen)
@@ -52,15 +53,17 @@ class Queue(object):
         self.read_thread.start()
 
     def close(self):
-        self.conn.shutdown(socket.SHUT_RDWR)
-        self.read_thread.join()
-        if self.debug:
-            print >>sys.stderr, "closed"
+        with self.queue_lock:
+            self.conn.shutdown(socket.SHUT_RDWR)
+            self.read_thread.join()
+            if self.debug:
+                print >>sys.stderr, "closed"
 
     def enque(self, data):
-        msg = "ENQUE " + data.encode('base64').replace('\n', '') + '\n'
-        self.conn.send(msg)
-        self.get_enque_response()
+        with self.queue_lock:
+            msg = "ENQUE " + data.encode('base64').replace('\n', '') + '\n'
+            self.conn.send(msg)
+            self.get_enque_response()
 
     def get_enque_response(self):
         cmd, data = self.get_line()
@@ -70,8 +73,9 @@ class Queue(object):
             raise Exception, "bad command recieved %s" % cmd
 
     def deque(self):
-        self.conn.send("DEQUE\n")
-        return self.get_deque_response()
+        with self.queue_lock:
+            self.conn.send("DEQUE\n")
+            return self.get_deque_response()
 
     def get_deque_response(self):
         cmd, data = self.get_line()
@@ -138,7 +142,7 @@ def _loop(queue):
                 print "queue is empty"
 
 def main():
-    queue = Queue('localhost', 8080)
+    queue = Queue('localhost', 9001)
     try:
         _loop(queue)
     finally:

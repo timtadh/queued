@@ -61,9 +61,15 @@ class Queue(object):
 
     def enque(self, data):
         with self.queue_lock:
+            if self.debug:
+                print >>sys.stderr, "queuing", data
             msg = "ENQUE " + data.encode('base64').replace('\n', '') + '\n'
             self.conn.send(msg)
+            if self.debug:
+                print >>sys.stderr, "wait for response", data
             self.get_enque_response()
+            if self.debug:
+                print >>sys.stderr, "recieved OK", data
 
     def get_enque_response(self):
         cmd, data = self.get_line()

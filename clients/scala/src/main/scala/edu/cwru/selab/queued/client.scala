@@ -49,7 +49,14 @@ class Queued(host:String, port:Int) {
       val source =
       while (!socket.isClosed()) {
         try {
-          lines.put(reader.readLine())
+          val line = reader.readLine()
+          if (line != null) {
+              lines.put(line)
+          } else {
+              lines.put("ERROR queued died")
+              socket.close()
+              return
+          }
         } catch {
           case e: java.net.SocketException => //pass
         }
@@ -119,7 +126,7 @@ class Queued(host:String, port:Int) {
 
 object MainQueued {
   def main(args: Array[String]) {
-    val queue = new Queued("localhost", 8080)
+    val queue = new Queued("localhost", 9001)
     try {
       queue.enque("asdf")
       queue.enque("asdf")

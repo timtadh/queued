@@ -198,16 +198,18 @@ func EncodeMessage(cmd string, msg []byte) []byte {
 
 func (self *Server) connection(send chan<- []byte, recv <-chan byte) {
     defer func() { <-recv }()
-    defer log.Println("client closed")
+    // defer log.Println("client closed")
     defer close(send)
 
-    log.Println("new client")
+    // log.Println("new client")
 
     responder := func(f func([]byte)(string, []byte, error)) (g func([]byte)) {
         return func(rest []byte) {
             cmd, data, err := f(rest)
             if err != nil {
-                log.Println(err)
+                if err.Error() != "queue is empty" {
+                    log.Println(err)
+                }
                 send<-EncodeMessage("ERROR", []byte(err.Error()))
             } else if cmd != "" {
                 send<-EncodeMessage(cmd, data)

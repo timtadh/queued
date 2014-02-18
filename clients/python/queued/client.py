@@ -58,18 +58,24 @@ class Queue(object):
         self._close(False)
 
     def _close(self, from_read=False):
-        if from_read:
+        if self.debug and from_read:
             print >>sys.stderr, "read thread closing it"
         with self.queue_lock:
             with self.lines_cv:
+                if self.closed:
+                    if self.debug and from_read:
+                        print >>sys.stderr, "read thread bailed"
+                    return
                 self.closed = True
                 self.lines_cv.notifyAll()
-            self.conn.shutdown(socket.SHUT_RDWR)
-            if not from_read:
-                self.read_thread.join()
-            self.conn.close()
-            if self.debug:
-                print >>sys.stderr, "closed"
+        self.conn.shutdown(socket.SHUT_RDWR)
+        if not from_read:
+            self.read_thread.join()
+        self.conn.close()
+        if self.debug:
+            print >>sys.stderr, "closed"
+            if from_read:
+                print >>sys.stderr, "read thread closed it"
 
     def enque(self, data):
         with self.queue_lock:

@@ -44,18 +44,30 @@ class Queue(object):
         self.port = port
         self.debug = debug
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.conn.settimeout(5)
         self.conn.connect((self.host, self.port))
         self.queue_lock = threading.Lock()
         self.lines = deque()
         self.lines_cv = threading.Condition()
+        self.closed = False
         self.read_thread = threading.Thread(target=self.listen)
         self.read_thread.daemon = True
         self.read_thread.start()
 
     def close(self):
+        self._close(False)
+
+    def _close(self, from_read=False):
+        if from_read:
+            print >>sys.stderr, "read thread closing it"
         with self.queue_lock:
+            with self.lines_cv:
+                self.closed = True
+                self.lines_cv.notifyAll()
             self.conn.shutdown(socket.SHUT_RDWR)
-            self.read_thread.join()
+            if not from_read:
+                self.read_thread.join()
+            self.conn.close()
             if self.debug:
                 print >>sys.stderr, "closed"
 
@@ -94,10 +106,16 @@ class Queue(object):
             while "\n" not in chunk:
                 try:
                     data = self.conn.recv(4096*4)
-                    if not data: return
+                    if not data:
+                        self._close(True)
+                        return
                     chunk += data
+                except socket.timeout, t:
+                    ## timeout retry
+                    pass
                 except Exception, e:
-                    print >>sys.stderr, e
+                    print >>sys.stderr, e, type(e)
+                    self._close(True)
                     return
             line, chunk = chunk.split('\n', 1)
             with self.lines_cv:
@@ -107,6 +125,8 @@ class Queue(object):
     def get_line(self):
         with self.lines_cv:
             while len(self.lines) <= 0:
+                if self.closed:
+                    raise Exception, "queued connection closed"
                 self.lines_cv.wait()
             line = self.lines.popleft()
         return self.process_line(line)

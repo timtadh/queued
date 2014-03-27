@@ -137,6 +137,7 @@ func (self *Server) Stop() error {
 
 
 func (self *Server) listen() {
+    errors := ErrorHandler()
     var EOF bool
     for !EOF {
         con, err := self.ln.AcceptTCP()
@@ -145,8 +146,8 @@ func (self *Server) listen() {
         } else if err != nil {
             log.Panic(err)
         } else {
-            send := netutils.TCPWriter(con)
-            recv := netutils.TCPReader(con)
+            send := netutils.TCPWriter(con, errors)
+            recv := netutils.TCPReader(con, errors)
             go self.connection(send, recv)
         }
     }
@@ -193,6 +194,16 @@ func EncodeMessage(cmd string, msg []byte) []byte {
     b64.Encode(msg64[cmdlen+1:msg64len-1], msg)
     msg64[len(msg64)-1] = '\n'
     return msg64
+}
+
+func ErrorHandler() (chan<- error) {
+    errors := make(chan error)
+    go func() {
+        for err := range errors {
+            log.Println(err)
+        }
+    }()
+    return errors
 }
 
 

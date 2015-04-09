@@ -11,7 +11,7 @@ package queue
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  *  * Redistributions of source code must retain the above copyright notice,
  *    this list of conditions and the following disclaimer.
  *
@@ -22,7 +22,7 @@ package queue
  *  * Neither the name of the queued nor the names of its contributors may be
  *    used to endorse or promote products derived from this software without
  *    specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -37,129 +37,125 @@ package queue
  */
 
 import (
-  "fmt"
-  "os"
-  "sync"
-  "strings"
-  logpkg "log"
+	"fmt"
+	logpkg "log"
+	"os"
+	"strings"
+	"sync"
 )
-
 
 var log *logpkg.Logger
 
 func init() {
-    log = logpkg.New(os.Stderr, "queued/queue> ", logpkg.Ltime | logpkg.Lshortfile)
+	log = logpkg.New(os.Stderr, "queued/queue> ", logpkg.Ltime|logpkg.Lshortfile)
 }
 
-
 type node struct {
-    next *node
-    data []byte
+	next *node
+	data []byte
 }
 
 type Queue struct {
-    head *node
-    tail *node
-    length int
-    lock *sync.Mutex
+	head   *node
+	tail   *node
+	length int
+	lock   *sync.Mutex
 }
-
 
 /* Construct a new queue */
 func NewQueue() *Queue {
-    return &Queue{
-        head:nil,
-        tail:nil,
-        length:0,
-        lock:new(sync.Mutex),
-    }
+	return &Queue{
+		head:   nil,
+		tail:   nil,
+		length: 0,
+		lock:   new(sync.Mutex),
+	}
 }
 
 /* Put data on the queue */
 func (self *Queue) Enque(data []byte) error {
-    self.lock.Lock()
-    defer self.lock.Unlock()
+	self.lock.Lock()
+	defer self.lock.Unlock()
 
-    node := &node{next:nil, data:data}
+	node := &node{next: nil, data: data}
 
-    if self.tail == nil {
-        if self.head != nil {
-            return fmt.Errorf("List has head but no tail...")
-        }
-        self.head = node
-        self.tail = node
-    } else {
-        self.tail.next = node
-        self.tail = node
-    }
-    self.length += 1
+	if self.tail == nil {
+		if self.head != nil {
+			return fmt.Errorf("List has head but no tail...")
+		}
+		self.head = node
+		self.tail = node
+	} else {
+		self.tail.next = node
+		self.tail = node
+	}
+	self.length += 1
 
-    return nil
+	return nil
 }
 
 /* Read data off the queue in FIFO order */
 func (self *Queue) Deque() (data []byte, err error) {
-    self.lock.Lock()
-    defer self.lock.Unlock()
+	self.lock.Lock()
+	defer self.lock.Unlock()
 
-    if self.length == 0 {
-        return nil, fmt.Errorf("List is empty")
-    }
-    if self.length < 0 {
-        return nil, fmt.Errorf("List length is less than zero")
-    }
-    if self.head == nil {
-        return nil, fmt.Errorf("head is nil")
-    }
+	if self.length == 0 {
+		return nil, fmt.Errorf("List is empty")
+	}
+	if self.length < 0 {
+		return nil, fmt.Errorf("List length is less than zero")
+	}
+	if self.head == nil {
+		return nil, fmt.Errorf("head is nil")
+	}
 
-    node := self.head
+	node := self.head
 
-    if node.next == nil {
-        if node != self.tail {
-            return nil, fmt.Errorf("Expected tail to equal head")
-        }
-        if self.length != 1 {
-            return nil, fmt.Errorf("Expected list length to equal 1")
-        }
-        self.tail = nil
-    }
-    self.head = node.next
-    self.length -= 1
+	if node.next == nil {
+		if node != self.tail {
+			return nil, fmt.Errorf("Expected tail to equal head")
+		}
+		if self.length != 1 {
+			return nil, fmt.Errorf("Expected list length to equal 1")
+		}
+		self.tail = nil
+	}
+	self.head = node.next
+	self.length -= 1
 
-    return node.data, nil
+	return node.data, nil
 }
 
 /* Check to see if it empty */
 func (self *Queue) Empty() bool {
-    self.lock.Lock()
-    defer self.lock.Unlock()
-    return self.length <= 0
+	self.lock.Lock()
+	defer self.lock.Unlock()
+	return self.length <= 0
 }
 
 /* How many items are on the queue? */
 func (self *Queue) Length() int {
-    self.lock.Lock()
-    defer self.lock.Unlock()
-    return self.length
+	self.lock.Lock()
+	defer self.lock.Unlock()
+	return self.length
 }
 
 func (self *node) String() string {
-    return fmt.Sprintf("<node: '%s'>", string(self.data))
+	return fmt.Sprintf("<node: '%s'>", string(self.data))
 }
 
 func (self *Queue) String() string {
-    self.lock.Lock()
-    defer self.lock.Unlock()
+	self.lock.Lock()
+	defer self.lock.Unlock()
 
-    var strs []string
-    strs = append(strs, "<queue: ")
-    for c := self.head; c != nil; c = c.next {
-        strs = append(strs, c.String())
-        if c.next != nil {
-            strs = append(strs, ", ")
-        }
-    }
-    strs = append(strs, ">")
-    return strings.Join(strs, "")
+	var strs []string
+	strs = append(strs, "<queue: ")
+	for c := self.head; c != nil; c = c.next {
+		strs = append(strs, c.String())
+		if c.next != nil {
+			strs = append(strs, ", ")
+		}
+	}
+	strs = append(strs, ">")
+	return strings.Join(strs, "")
 }
-

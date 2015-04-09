@@ -12,7 +12,7 @@ package main
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  *  * Redistributions of source code must retain the above copyright notice,
  *    this list of conditions and the following disclaimer.
  *
@@ -23,7 +23,7 @@ package main
  *  * Neither the name of the queued nor the names of its contributors may be
  *    used to endorse or promote products derived from this software without
  *    specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -38,22 +38,25 @@ package main
  */
 
 import (
-  "os"
-  "fmt"
-  "strconv"
-  "github.com/timtadh/getopt"
+	"fmt"
+	"os"
+	"strconv"
 )
 
 import (
-  queue "github.com/timtadh/queued/queue"
-  qnet "github.com/timtadh/queued/net"
+	"github.com/timtadh/getopt"
+)
+
+import (
+	qnet "github.com/timtadh/queued/net"
+	queue "github.com/timtadh/queued/queue"
 )
 
 var ErrorCodes map[string]int = map[string]int{
-    "usage":1,
-    "version":2,
-    "opts":3,
-    "badint":5,
+	"usage":   1,
+	"version": 2,
+	"opts":    3,
+	"badint":  5,
 }
 
 var UsageMessage string = "queued <port>"
@@ -69,48 +72,48 @@ Specs
 `
 
 func Usage(code int) {
-    fmt.Fprintln(os.Stderr, UsageMessage)
-    if code == 0 {
-        fmt.Fprintln(os.Stderr, ExtendedMessage)
-        code = ErrorCodes["usage"]
-    } else {
-        fmt.Fprintln(os.Stderr, "Try -h or --help for help")
-    }
-    os.Exit(code)
+	fmt.Fprintln(os.Stderr, UsageMessage)
+	if code == 0 {
+		fmt.Fprintln(os.Stderr, ExtendedMessage)
+		code = ErrorCodes["usage"]
+	} else {
+		fmt.Fprintln(os.Stderr, "Try -h or --help for help")
+	}
+	os.Exit(code)
 }
 
 func parse_int(str string) int {
-    i, err := strconv.Atoi(str)
-    if err != nil {
-        fmt.Fprintf(os.Stderr, "Error parsing '%v' expected an int\n", str)
-        Usage(ErrorCodes["badint"])
-    }
-    return i
+	i, err := strconv.Atoi(str)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing '%v' expected an int\n", str)
+		Usage(ErrorCodes["badint"])
+	}
+	return i
 }
 
 func main() {
 
-    args, optargs, err := getopt.GetOpt(os.Args[1:], "h", []string{"help"})
-    if err != nil {
-        fmt.Fprintln(os.Stderr, err)
-        Usage(ErrorCodes["opts"])
-    }
+	args, optargs, err := getopt.GetOpt(os.Args[1:], "h", []string{"help"})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		Usage(ErrorCodes["opts"])
+	}
 
-    port := -1
-    for _, oa := range optargs {
-        switch oa.Opt() {
-        case "-h", "--help": Usage(0)
-        }
-    }
+	port := -1
+	for _, oa := range optargs {
+		switch oa.Opt() {
+		case "-h", "--help":
+			Usage(0)
+		}
+	}
 
-    if len(args) != 1 {
-        fmt.Fprintln(os.Stderr, "You must specify a port")
-        Usage(ErrorCodes["opts"])
-    }
-    port = parse_int(args[0])
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "You must specify a port")
+		Usage(ErrorCodes["opts"])
+	}
+	port = parse_int(args[0])
 
-    fmt.Println("starting")
-    server := qnet.NewServer(queue.NewQueue())
-    server.Start(port)
+	fmt.Println("starting")
+	server := qnet.NewServer(queue.NewQueue())
+	server.Start(port)
 }
-

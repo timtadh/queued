@@ -1,7 +1,7 @@
 /*
 This package implements a TCP network service which allows clients to queue and
 deque data. The client has 2 verbs "ENQUE" and "DEQUE" and the server can send 3
-reponse status words "OK", "ERROR" and "ITEM". 
+reponse status words "OK", "ERROR" and "ITEM".
 
 All messages have the following format:
 
@@ -43,7 +43,7 @@ package net
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  *  * Redistributions of source code must retain the above copyright notice,
  *    this list of conditions and the following disclaimer.
  *
@@ -54,7 +54,7 @@ package net
  *  * Neither the name of the queued nor the names of its contributors may be
  *    used to endorse or promote products derived from this software without
  *    specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -69,33 +69,31 @@ package net
  */
 
 import (
-  "fmt"
-  "os"
-  "net"
-  "encoding/base64"
-  "bytes"
-  logpkg "log"
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	logpkg "log"
+	"net"
+	"os"
 )
 
 import (
-  netutils "github.com/timtadh/netutils"
+	netutils "github.com/timtadh/netutils"
 )
-
 
 var log *logpkg.Logger
 
 func init() {
-    log = logpkg.New(os.Stderr, "queued/net> ", logpkg.Ltime | logpkg.Lshortfile)
+	log = logpkg.New(os.Stderr, "queued/net> ", logpkg.Ltime|logpkg.Lshortfile)
 }
 
 type Server struct {
-    ln *net.TCPListener
-    queue Queue
+	ln    *net.TCPListener
+	queue Queue
 }
 
-
 func NewServer(queue Queue) *Server {
-    return &Server{queue:queue}
+	return &Server{queue: queue}
 }
 
 /*
@@ -110,169 +108,164 @@ These include:
 The expectation is for these errors to either cause a hard crash or be caught
 logged and then crashed.  */
 func (self *Server) Start(port int) {
-    if self.ln != nil {
-        panic("Server already started")
-    }
-    ln, err := net.ListenTCP(
-      "tcp",
-      &net.TCPAddr{IP:net.ParseIP("0.0.0.0"), Port:port},
-    )
-    if err != nil {
-        panic(err)
-    }
-    self.ln = ln
-    self.listen()
+	if self.ln != nil {
+		panic("Server already started")
+	}
+	ln, err := net.ListenTCP(
+		"tcp",
+		&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: port},
+	)
+	if err != nil {
+		panic(err)
+	}
+	self.ln = ln
+	self.listen()
 }
-
 
 /*
 Stop a started server. If there is some problem stopping the server an error
 will be returned.  */
 func (self *Server) Stop() error {
-    if self.ln == nil {
-        return fmt.Errorf("Can't close non-existent link")
-    }
-    return self.ln.Close()
+	if self.ln == nil {
+		return fmt.Errorf("Can't close non-existent link")
+	}
+	return self.ln.Close()
 }
-
 
 func (self *Server) listen() {
-    errors := ErrorHandler()
-    var EOF bool
-    for !EOF {
-        con, err := self.ln.AcceptTCP()
-        if netutils.IsEOF(err) {
-            EOF = true
-        } else if err != nil {
-            log.Panic(err)
-        } else {
-            send := netutils.TCPWriter(con, errors)
-            recv := netutils.TCPReader(con, errors)
-            go self.connection(send, recv)
-        }
-    }
+	errors := ErrorHandler()
+	var EOF bool
+	for !EOF {
+		con, err := self.ln.AcceptTCP()
+		if netutils.IsEOF(err) {
+			EOF = true
+		} else if err != nil {
+			log.Panic(err)
+		} else {
+			send := netutils.TCPWriter(con, errors)
+			recv := netutils.TCPReader(con, errors)
+			go self.connection(send, recv)
+		}
+	}
 }
-
 
 /*
 Decode messages to/from the server. The server reads and sends line oriented
 commands with message bodies base64 encoded. This function handles decoding
 those lines for you.  */
 func DecodeMessage(line []byte) (string, []byte) {
-    split := bytes.SplitN(line, []byte(" "), 2)
-    command := string(bytes.TrimSpace(split[0]))
-    var rest []byte
-    if len(split) > 1 {
-        b64 := base64.StdEncoding
-        encoded := bytes.TrimSpace(split[1])
-        rest = make([]byte, b64.DecodedLen(len(encoded)))
-        if n, err := b64.Decode(rest, encoded); err != nil {
-            panic(err)
-        } else {
-            rest = rest[:n]
-        }
-    }
-    return command, rest
+	split := bytes.SplitN(line, []byte(" "), 2)
+	command := string(bytes.TrimSpace(split[0]))
+	var rest []byte
+	if len(split) > 1 {
+		b64 := base64.StdEncoding
+		encoded := bytes.TrimSpace(split[1])
+		rest = make([]byte, b64.DecodedLen(len(encoded)))
+		if n, err := b64.Decode(rest, encoded); err != nil {
+			panic(err)
+		} else {
+			rest = rest[:n]
+		}
+	}
+	return command, rest
 }
-
 
 /*
 Encode a message for the server. Handles base64ing the msg. It is expected that
 the paramter `cmd` will not have a space in it. If it does problems will occur
 on the reciever side.  */
 func EncodeMessage(cmd string, msg []byte) []byte {
-    if msg == nil {
-        return []byte(cmd + "\n")
-    }
-    b64 := base64.StdEncoding
-    bcmd := []byte(cmd)
-    cmdlen := len(bcmd)
-    msg64len := cmdlen + b64.EncodedLen(len(msg)) + 2
-    msg64 := make([]byte, msg64len)
-    copy(msg64[:cmdlen], bcmd)
-    msg64[cmdlen] = ' '
-    b64.Encode(msg64[cmdlen+1:msg64len-1], msg)
-    msg64[len(msg64)-1] = '\n'
-    return msg64
+	if msg == nil {
+		return []byte(cmd + "\n")
+	}
+	b64 := base64.StdEncoding
+	bcmd := []byte(cmd)
+	cmdlen := len(bcmd)
+	msg64len := cmdlen + b64.EncodedLen(len(msg)) + 2
+	msg64 := make([]byte, msg64len)
+	copy(msg64[:cmdlen], bcmd)
+	msg64[cmdlen] = ' '
+	b64.Encode(msg64[cmdlen+1:msg64len-1], msg)
+	msg64[len(msg64)-1] = '\n'
+	return msg64
 }
 
-func ErrorHandler() (chan<- error) {
-    errors := make(chan error)
-    go func() {
-        for err := range errors {
-            log.Println(err)
-        }
-    }()
-    return errors
+func ErrorHandler() chan<- error {
+	errors := make(chan error)
+	go func() {
+		for err := range errors {
+			log.Println(err)
+		}
+	}()
+	return errors
 }
-
 
 func (self *Server) connection(send chan<- []byte, recv <-chan byte) {
-    defer func() { <-recv }()
-    // defer log.Println("client closed")
-    defer close(send)
+	defer func() { <-recv }()
+	// defer log.Println("client closed")
+	defer close(send)
 
-    // log.Println("new client")
+	// log.Println("new client")
 
-    responder := func(f func([]byte)(string, []byte, error)) (g func([]byte)) {
-        return func(rest []byte) {
-            cmd, data, err := f(rest)
-            if err != nil {
-                if err.Error() != "queue is empty" {
-                    log.Println(err)
-                }
-                send<-EncodeMessage("ERROR", []byte(err.Error()))
-            } else if cmd != "" {
-                send<-EncodeMessage(cmd, data)
-            } else {
-                send<-EncodeMessage("OK", nil)
-            }
-        }
-    }
+	responder := func(f func([]byte) (string, []byte, error)) (g func([]byte)) {
+		return func(rest []byte) {
+			cmd, data, err := f(rest)
+			if err != nil {
+				if err.Error() != "queue is empty" {
+					log.Println(err)
+				}
+				send <- EncodeMessage("ERROR", []byte(err.Error()))
+			} else if cmd != "" {
+				send <- EncodeMessage(cmd, data)
+			} else {
+				send <- EncodeMessage("OK", nil)
+			}
+		}
+	}
 
-    bad := responder(func(rest []byte) (string, []byte, error) {
-        return "", nil, fmt.Errorf("bad command recieved")
-    })
+	bad := responder(func(rest []byte) (string, []byte, error) {
+		return "", nil, fmt.Errorf("bad command recieved")
+	})
 
-    enque := responder(func(rest []byte) (string, []byte, error) {
-        // log.Println("got", rest)
-        if rest == nil {
-            return "", nil, fmt.Errorf("no data sent to queue")
-        } else {
-            return "", nil, self.queue.Enque(rest)
-        }
-    })
+	enque := responder(func(rest []byte) (string, []byte, error) {
+		// log.Println("got", rest)
+		if rest == nil {
+			return "", nil, fmt.Errorf("no data sent to queue")
+		} else {
+			return "", nil, self.queue.Enque(rest)
+		}
+	})
 
-    deque := responder(func(rest []byte) (string, []byte, error) {
-        if rest != nil {
-            return "", nil, fmt.Errorf("recieved msg data when none was expected")
-        }
-        if self.queue.Empty() {
-            return "", nil, fmt.Errorf("queue is empty")
-        }
-        data, err := self.queue.Deque()
-        if err != nil {
-            return "", nil, err
-        }
-        return "ITEM", data, nil
-    })
+	deque := responder(func(rest []byte) (string, []byte, error) {
+		if rest != nil {
+			return "", nil, fmt.Errorf("recieved msg data when none was expected")
+		}
+		if self.queue.Empty() {
+			return "", nil, fmt.Errorf("queue is empty")
+		}
+		data, err := self.queue.Deque()
+		if err != nil {
+			return "", nil, err
+		}
+		return "ITEM", data, nil
+	})
 
-    defer func() {
-        if e := recover(); e != nil {
-            send<-EncodeMessage("error", []byte(fmt.Sprintf("%v", e)))
-        }
-    }()
+	defer func() {
+		if e := recover(); e != nil {
+			send <- EncodeMessage("error", []byte(fmt.Sprintf("%v", e)))
+		}
+	}()
 
-    for line := range netutils.Readlines(recv) {
-        command, rest := DecodeMessage(line)
-        switch command {
-        case "ENQUE": enque(rest)
-        case "DEQUE": deque(rest)
-        default:
-            log.Printf("'%s'\n", command)
-            bad(rest)
-        }
-    }
+	for line := range netutils.Readlines(recv) {
+		command, rest := DecodeMessage(line)
+		switch command {
+		case "ENQUE":
+			enque(rest)
+		case "DEQUE":
+			deque(rest)
+		default:
+			log.Printf("'%s'\n", command)
+			bad(rest)
+		}
+	}
 }
-
-

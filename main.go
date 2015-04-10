@@ -65,6 +65,7 @@ starts a queued daemon, a simple queue exposed on the network.
 
 Options
     -h, --help                          print this message
+    --allow-dups                        allow duplicate items in the queue
 
 Specs
     <port>  A bindable port number.

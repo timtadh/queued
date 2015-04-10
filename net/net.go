@@ -70,6 +70,7 @@ package net
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	logpkg "log"
@@ -144,7 +145,7 @@ func (self *Server) listen() {
 		} else {
 			send := netutils.TCPWriter(con, errors)
 			recv := netutils.TCPReader(con, errors)
-			go self.connection(send, recv)
+			go self.Connection(send, recv).Serve()
 		}
 	}
 }
@@ -153,41 +154,68 @@ func (self *Server) listen() {
 Decode messages to/from the server. The server reads and sends line oriented
 commands with message bodies base64 encoded. This function handles decoding
 those lines for you.  */
-func DecodeMessage(line []byte) (string, []byte) {
+func DecodeB64(msg []byte) ([]byte, error) {
+	b64 := base64.StdEncoding
+	encoded := bytes.TrimSpace(msg)
+	rest := make([]byte, b64.DecodedLen(len(encoded)))
+	if n, err := b64.Decode(rest, encoded); err != nil {
+		return nil, err
+	} else {
+		rest = rest[:n]
+	}
+	return rest, nil
+}
+
+func DecodeCmd(line []byte) (string, []byte) {
 	split := bytes.SplitN(line, []byte(" "), 2)
 	command := string(bytes.TrimSpace(split[0]))
-	var rest []byte
 	if len(split) > 1 {
-		b64 := base64.StdEncoding
-		encoded := bytes.TrimSpace(split[1])
-		rest = make([]byte, b64.DecodedLen(len(encoded)))
-		if n, err := b64.Decode(rest, encoded); err != nil {
-			panic(err)
-		} else {
-			rest = rest[:n]
-		}
+		return command, split[1]
+	} else {
+		return command, nil
 	}
-	return command, rest
 }
 
 /*
 Encode a message for the server. Handles base64ing the msg. It is expected that
 the paramter `cmd` will not have a space in it. If it does problems will occur
 on the reciever side.  */
-func EncodeMessage(cmd string, msg []byte) []byte {
+func EncodeMessage(cmd string, msg []byte, enc Encoder) []byte {
 	if msg == nil {
 		return []byte(cmd + "\n")
 	}
-	b64 := base64.StdEncoding
 	bcmd := []byte(cmd)
-	cmdlen := len(bcmd)
-	msg64len := cmdlen + b64.EncodedLen(len(msg)) + 2
-	msg64 := make([]byte, msg64len)
-	copy(msg64[:cmdlen], bcmd)
-	msg64[cmdlen] = ' '
-	b64.Encode(msg64[cmdlen+1:msg64len-1], msg)
-	msg64[len(msg64)-1] = '\n'
-	return msg64
+	cmdLen := len(bcmd)
+	msgEncLen := cmdLen + enc.EncodedLen(len(msg)) + 2
+	msgEnc := make([]byte, msgEncLen)
+	copy(msgEnc[:cmdLen], bcmd)
+	msgEnc[cmdLen] = ' '
+	enc.Encode(msgEnc[cmdLen+1:msgEncLen-1], msg)
+	msgEnc[len(msgEnc)-1] = '\n'
+	return msgEnc
+}
+
+func EncodeB64Message(cmd string, msg []byte) []byte {
+	return EncodeMessage(cmd, msg, base64.StdEncoding)
+}
+
+func EncodePlainMessage(cmd string, msg []byte) []byte {
+	return EncodeMessage(cmd, msg, echoEncoder{})
+}
+
+type Encoder interface {
+	EncodedLen(int) int
+	Encode([]byte, []byte)
+}
+
+type echoEncoder struct{}
+
+func (b echoEncoder) EncodedLen(i int) int {
+	return i
+}
+
+func (b echoEncoder) Encode(dst, src []byte) {
+	copy(dst, src)
 }
 
 func ErrorHandler() chan<- error {
@@ -200,72 +228,130 @@ func ErrorHandler() chan<- error {
 	return errors
 }
 
-func (self *Server) connection(send chan<- []byte, recv <-chan byte) {
-	defer func() { <-recv }()
-	// defer log.Println("client closed")
-	defer close(send)
+type Connection struct {
+	s    *Server
+	send chan<- []byte
+	recv <-chan byte
+}
 
-	// log.Println("new client")
-
-	responder := func(f func([]byte) (string, []byte, error)) (g func([]byte)) {
-		return func(rest []byte) {
-			cmd, data, err := f(rest)
-			if err != nil {
-				if err.Error() != "queue is empty" {
-					log.Println(err)
-				}
-				send <- EncodeMessage("ERROR", []byte(err.Error()))
-			} else if cmd != "" {
-				send <- EncodeMessage(cmd, data)
-			} else {
-				send <- EncodeMessage("OK", nil)
-			}
-		}
+func (self *Server) Connection(send chan<- []byte, recv <-chan byte) *Connection {
+	log.Println("new connection")
+	return &Connection{
+		s: self,
+		send: send,
+		recv: recv,
 	}
+}
 
-	bad := responder(func(rest []byte) (string, []byte, error) {
-		return "", nil, fmt.Errorf("bad command recieved")
-	})
-
-	enque := responder(func(rest []byte) (string, []byte, error) {
-		// log.Println("got", rest)
-		if rest == nil {
-			return "", nil, fmt.Errorf("no data sent to queue")
-		} else {
-			return "", nil, self.queue.Enque(rest)
-		}
-	})
-
-	deque := responder(func(rest []byte) (string, []byte, error) {
-		if rest != nil {
-			return "", nil, fmt.Errorf("recieved msg data when none was expected")
-		}
-		if self.queue.Empty() {
-			return "", nil, fmt.Errorf("queue is empty")
-		}
-		data, err := self.queue.Deque()
-		if err != nil {
-			return "", nil, err
-		}
-		return "ITEM", data, nil
-	})
-
+func (c *Connection) Serve() {
+	defer c.Close()
 	defer func() {
 		if e := recover(); e != nil {
-			send <- EncodeMessage("error", []byte(fmt.Sprintf("%v", e)))
+			c.send <- EncodeB64Message("error", []byte(fmt.Sprintf("%v", e)))
 		}
 	}()
 
-	for line := range netutils.Readlines(recv) {
-		command, rest := DecodeMessage(line)
-		switch command {
+	enque := c.Respond(c.Enque, base64.StdEncoding)
+	deque := c.Respond(c.Deque, base64.StdEncoding)
+	has := c.Respond(c.Has, echoEncoder{})
+	size := c.Respond(c.Size, echoEncoder{})
+	badDecode := c.Respond(c.BadDecode, base64.StdEncoding)
+
+	b64cmds := func(cmd string, data []byte) {
+		switch cmd {
 		case "ENQUE":
-			enque(rest)
+			enque(data)
+		case "HAS":
+			has(data)
+		}
+	}
+
+	for line := range netutils.Readlines(c.recv) {
+		command, rest := DecodeCmd(line)
+		switch command {
+		case "ENQUE", "HAS":
+			if rest == nil {
+				badDecode(rest)
+			} else {
+				data, err := DecodeB64(rest)
+				if err != nil {
+					badDecode(rest)
+				} else {
+					b64cmds(command, data)
+				}
+			}
 		case "DEQUE":
 			deque(rest)
+		case "SIZE":
+			size(rest)
 		default:
-			log.Printf("'%s'\n", command)
-			bad(rest)
+			err := fmt.Errorf("bad command recieved, '%v'", command)
+			log.Println(err.Error())
+			c.send <- EncodeB64Message("ERROR", []byte(err.Error()))
 		}
 	}
 }
+
+func (c *Connection) Close() {
+	close(c.send)
+	<-c.recv
+	log.Println("closed connection")
+}
+
+func (c *Connection) Respond(f func([]byte) (string, []byte, error), enc Encoder) (g func([]byte)) {
+	return func(rest []byte) {
+		cmd, data, err := f(rest)
+		if err != nil {
+			if err.Error() != "queue is empty" {
+				log.Println(err)
+			}
+			c.send <- EncodeB64Message("ERROR", []byte(err.Error()))
+		} else if cmd != "" {
+			c.send <- EncodeMessage(cmd, data, enc)
+		} else {
+			c.send <- EncodePlainMessage("OK", nil)
+		}
+	}
+}
+
+func (c *Connection) BadDecode(line []byte) (string, []byte, error) {
+	return "", nil, fmt.Errorf("bad line '%v'", string(bytes.TrimSpace(line)))
+}
+
+func (c *Connection) Enque(rest []byte) (string, []byte, error) {
+	if rest == nil {
+		return "", nil, fmt.Errorf("no data sent to queue")
+	} else {
+		return "", nil, c.s.queue.Enque(rest)
+	}
+}
+
+func (c *Connection) Has(rest []byte) (string, []byte, error) {
+	if len(rest) != sha256.Size {
+		return "", nil, fmt.Errorf("Expected a hash of size %v got %v", sha256.Size, len(rest))
+	}
+	if c.s.queue.Has(rest) {
+		return "TRUE", nil, nil
+	} else {
+		return "FALSE", nil, nil
+	}
+}
+
+func (c *Connection) Size(rest []byte) (string, []byte, error) {
+	return "SIZE", []byte(fmt.Sprint(c.s.queue.Size())), nil
+}
+
+func (c *Connection) Deque(rest []byte) (string, []byte, error) {
+	if rest != nil {
+		return "", nil, fmt.Errorf("recieved msg data when none was expected")
+	}
+	if c.s.queue.Empty() {
+		return "", nil, fmt.Errorf("queue is empty")
+	}
+	data, err := c.s.queue.Deque()
+	if err != nil {
+		return "", nil, err
+	}
+	return "ITEM", data, nil
+}
+

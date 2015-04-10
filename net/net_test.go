@@ -39,10 +39,12 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"os"
-	"time"
+	"strconv"
 )
 
-import queue "github.com/timtadh/queued/queue"
+import (
+	"github.com/timtadh/queued/queue"
+)
 
 
 func init() {
@@ -69,20 +71,27 @@ func TestEncodeMessage(t *testing.T) {
 			t.Errorf("'%v'", string(msg))
 		}
 	}
-	check(EncodeMessage("OK", nil), "OK\n")
-	check(EncodeMessage("ERROR", []byte("hi")), "ERROR aGk=\n")
+	check(EncodePlainMessage("OK", nil), "OK\n")
+	check(EncodePlainMessage("WIZARD", []byte("hi")), "WIZARD hi\n")
+	check(EncodeB64Message("ERROR", []byte("hi")), "ERROR aGk=\n")
 }
 
 func TestDecodeMessage(t *testing.T) {
 	check := func(line, c_cmd string, c_msg []byte) {
-		cmd, msg := DecodeMessage([]byte(line))
+		cmd, rest := DecodeCmd([]byte(line))
 		if c_cmd != cmd {
 			t.Errorf("bad cmd, '%v' != '%v'", c_cmd, cmd)
 		}
-		if c_msg == nil && msg != nil {
-			t.Errorf("bad msg, '%v' != '%v'", c_msg, msg)
-		} else if !bytes.Equal(c_msg, msg) {
-			t.Errorf("bad msg, '%v' != '%v'", c_msg, msg)
+		if c_msg != nil {
+			msg, err := DecodeB64(rest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(c_msg, msg) {
+				t.Errorf("bad msg, '%v' != '%v'", c_msg, msg)
+			}
+		} else if c_msg == nil && rest != nil {
+			t.Errorf("bad msg, '%v' != '%v'", c_msg, rest)
 		}
 	}
 
@@ -105,12 +114,12 @@ func sender_to_reciever(recv <-chan []byte) <-chan byte {
 }
 
 func TestConnection(t *testing.T) {
-	server := &Server{queue: queue.NewQueue()}
+	server := &Server{queue: queue.NewQueue(true)}
 	connect := func() (chan<- []byte, <-chan []byte) {
 		send := make(chan []byte)
 		r := sender_to_reciever(send)
 		s := make(chan []byte)
-		go server.connection(s, r)
+		go server.Connection(s, r).Serve()
 		return send, s
 	}
 
@@ -120,28 +129,44 @@ func TestConnection(t *testing.T) {
 		for i := 0; i < rand.Intn(25)+10; i++ {
 			item := rand_bytes(rand.Intn(32) + 2)
 			l = append(l, item)
-			send <- EncodeMessage("ENQUE", item)
-			cmd, data := DecodeMessage(<-recv)
+			send <- EncodeB64Message("ENQUE", item)
+			cmd, data := DecodeCmd(<-recv)
 			if cmd != "OK" && data != nil {
 				t.Fatal("Expected an OK response")
 			}
+			send <- EncodeB64Message("HAS", queue.Hash(item))
+			cmd, data = DecodeCmd(<-recv)
+			if cmd != "TRUE" && data != nil {
+				t.Fatal("Expected an TRUE response")
+			}
 		}
 		for _, item := range l {
-			send <- EncodeMessage("DEQUE", nil)
-			cmd, q_item := DecodeMessage(<-recv)
-			if cmd != "ITEM" || q_item == nil {
+			send <- EncodePlainMessage("DEQUE", nil)
+			cmd, rest := DecodeCmd(<-recv)
+			if cmd != "ITEM" || rest == nil {
 				t.Fatal("expected an item")
+			}
+			q_item, err := DecodeB64(rest)
+			if err != nil {
+				t.Fatal(err)
 			}
 			if !bytes.Equal(q_item, item) {
 				t.Fatal("items should have equalled each other")
 			}
 		}
-		send <- EncodeMessage("DEQUE", nil)
-		cmd, q_item := DecodeMessage(<-recv)
+		send <- EncodePlainMessage("DEQUE", nil)
+		cmd, rest := DecodeCmd(<-recv)
 		if cmd != "ERROR" {
 			t.Fatal("expected an error")
 		}
-		if q_item == nil || string(q_item) != "queue is empty" {
+		if rest == nil {
+			t.Fatal("expected queue empty message")
+		}
+		msg, err := DecodeB64(rest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(msg) != "queue is empty" {
 			t.Fatal("expected queue empty message")
 		}
 		close(send)
@@ -155,12 +180,12 @@ func TestConnection(t *testing.T) {
 }
 
 func TestMultiConnection(t *testing.T) {
-	server := &Server{queue: queue.NewQueue()}
+	server := &Server{queue: queue.NewQueue(true)}
 	connect := func() (chan<- []byte, <-chan []byte) {
 		send := make(chan []byte)
 		r := sender_to_reciever(send)
 		s := make(chan []byte)
-		go server.connection(s, r)
+		go server.Connection(s, r).Serve()
 		return send, s
 	}
 
@@ -171,30 +196,58 @@ func TestMultiConnection(t *testing.T) {
 			item := []byte("same item for all!") // that way it doesn't matter
 			// who deques
 			l = append(l, item)
-			send <- EncodeMessage("ENQUE", item)
-			cmd, data := DecodeMessage(<-recv)
-			if cmd != "OK" && data != nil {
-				t.Fatal("Expected an OK response")
+			send <- EncodeB64Message("ENQUE", item)
+			cmd, rest := DecodeCmd(<-recv)
+			if cmd != "OK" && rest != nil {
+				t.Fatal("Expected an OK response", cmd, string(rest))
+			}
+			send <- EncodeB64Message("HAS", queue.Hash(item))
+			cmd, data := DecodeCmd(<-recv)
+			if cmd != "TRUE" && data != nil {
+				t.Fatal("Expected an TRUE response")
 			}
 		}
 		for _, item := range l {
-			send <- EncodeMessage("DEQUE", nil)
-			cmd, q_item := DecodeMessage(<-recv)
-			if cmd != "ITEM" || q_item == nil {
+			send <- EncodePlainMessage("DEQUE", nil)
+			cmd, rest := DecodeCmd(<-recv)
+			if cmd != "ITEM" || rest == nil {
 				t.Fatal("expected an item")
+			}
+			q_item, err := DecodeB64(rest)
+			if err != nil {
+				t.Fatal(err)
 			}
 			if !bytes.Equal(q_item, item) {
 				t.Fatal("items should have equalled each other")
 			}
 		}
 		if final {
-			time.Sleep(1e6)
-			send <- EncodeMessage("DEQUE", nil)
-			cmd, q_item := DecodeMessage(<-recv)
+			size := 1
+			for size > 0 {
+				send <- EncodePlainMessage("SIZE", nil)
+				cmd, sSize := DecodeCmd(<-recv)
+				if cmd != "SIZE" {
+					t.Fatal("expected a SIZE")
+				}
+				i, err := strconv.Atoi(string(bytes.TrimSpace(sSize)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				size = i
+			}
+			send <- EncodePlainMessage("DEQUE", nil)
+			cmd, rest := DecodeCmd(<-recv)
 			if cmd != "ERROR" {
 				t.Fatal("expected an error")
 			}
-			if q_item == nil || string(q_item) != "queue is empty" {
+			if rest == nil {
+				t.Fatal("expected queue empty message")
+			}
+			msg, err := DecodeB64(rest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(msg) != "queue is empty" {
 				t.Fatal("expected queue empty message")
 			}
 		}

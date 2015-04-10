@@ -41,4 +41,7 @@ type Queue interface {
 	Enque(data []byte) error
 	Deque() (data []byte, err error)
 	Empty() bool
+	Has(hash []byte) bool
+	Size() int
 }
+

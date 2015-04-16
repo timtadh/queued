@@ -1,0 +1,6 @@
+[submodule "src/github.com/timtadh/netutils"]
+	path = src/github.com/timtadh/netutils
+	url = https://github.com/timtadh/netutils.git
+[submodule "src/github.com/timtadh/getopt"]
+	path = src/github.com/timtadh/getopt
+	url = https://github.com/timtadh/getopt.git

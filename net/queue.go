@@ -7,7 +7,7 @@ package net
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  *  * Redistributions of source code must retain the above copyright notice,
  *    this list of conditions and the following disclaimer.
  *
@@ -18,7 +18,7 @@ package net
  *  * Neither the name of the queued nor the names of its contributors may be
  *    used to endorse or promote products derived from this software without
  *    specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -38,8 +38,7 @@ implementations. All implementations must conform to the following interface but
 other than that they are free to do whatever they want. For instance you could
 have a persistent queue or a distributed queue or something else.  */
 type Queue interface {
-    Enque(data []byte) error
-    Deque() (data []byte, err error)
-    Empty() bool
+	Enque(data []byte) error
+	Deque() (data []byte, err error)
+	Empty() bool
 }
-

@@ -83,6 +83,21 @@ class Queue(object):
             if from_read:
                 print >>sys.stderr, "read thread closed it"
 
+    def use(self, name):
+        name = name.strip()
+        with self.queue_lock:
+            msg = "USE %s\n" % name
+            self.conn.send(msg)
+            self.get_use_response()
+
+    def get_use_response(self):
+        cmd, data = self.get_line()
+        if cmd == "ERROR":
+            data = data.decode('base64')
+            raise Exception(data)
+        elif cmd != "OK":
+            raise Exception, "bad command recieved %s" % cmd
+
     def size(self):
         with self.queue_lock:
             msg = "SIZE\n"
@@ -222,6 +237,10 @@ def _loop(queue):
         elif command == "has" and data is not None:
             print queue.has(data)
         elif command == 'has' and data is None:
+            print >>sys.stderr, "bad input, need data"
+        elif command == "use" and data is not None:
+            queue.use(data)
+        elif command == 'use' and data is None:
             print >>sys.stderr, "bad input, need data"
         elif command == "size":
             print queue.size()

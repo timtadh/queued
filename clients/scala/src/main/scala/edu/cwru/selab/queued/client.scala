@@ -94,6 +94,21 @@ class Queued(host:String, port:Int) {
     return new Pair[String, String](command, rest)
   }
 
+  def use(name:String) {
+    send("USE " + name + "\n")
+    check_use_response()
+  }
+
+  def check_use_response() {
+    val line = get_line()
+    if (line._1 == "ERROR") {
+      val err = new String(Base64.decodeBase64(line._2.getBytes()));
+      throw new Exception(err)
+    } else if (line._1 != "OK") {
+      throw new Exception("Bad command recieved")
+    }
+  }
+
   def enque(data:String) {
     send("ENQUE " + new String(Base64.encodeBase64(data.getBytes())) + "\n")
     check_enque_response()
@@ -178,6 +193,9 @@ object MainQueued {
       queue.enque("asdf")
       queue.enque("asf")
       queue.enque("assdf")
+      queue.use("wizard")
+      println(queue.size())
+      queue.use("default")
       println(queue.size())
       println(queue.has("asdf"))
       println(queue.has("asf"))

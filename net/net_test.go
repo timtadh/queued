@@ -114,7 +114,7 @@ func sender_to_reciever(recv <-chan []byte) <-chan byte {
 }
 
 func TestConnection(t *testing.T) {
-	server := &Server{queue: queue.NewQueue(true)}
+	server := NewServer(func() Queue { return queue.NewQueue(true) })
 	connect := func() (chan<- []byte, <-chan []byte) {
 		send := make(chan []byte)
 		r := sender_to_reciever(send)
@@ -180,7 +180,7 @@ func TestConnection(t *testing.T) {
 }
 
 func TestMultiConnection(t *testing.T) {
-	server := &Server{queue: queue.NewQueue(true)}
+	server := NewServer(func() Queue { return queue.NewQueue(true) })
 	connect := func() (chan<- []byte, <-chan []byte) {
 		send := make(chan []byte)
 		r := sender_to_reciever(send)

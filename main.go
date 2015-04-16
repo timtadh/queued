@@ -48,8 +48,8 @@ import (
 )
 
 import (
-	qnet "github.com/timtadh/queued/net"
-	queue "github.com/timtadh/queued/queue"
+	"github.com/timtadh/queued/net"
+	"github.com/timtadh/queued/queue"
 )
 
 var ErrorCodes map[string]int = map[string]int{
@@ -65,7 +65,8 @@ starts a queued daemon, a simple queue exposed on the network.
 
 Options
     -h, --help                          print this message
-    --allow-dups                        allow duplicate items in the queue
+    --allow-dups                        allow duplicate items in the queue.
+                                        This setting effects every queue
 
 Specs
     <port>  A bindable port number.
@@ -121,7 +122,7 @@ func main() {
 	port = parse_int(args[0])
 
 	fmt.Println("starting")
-	server := qnet.NewServer(queue.NewQueue(dups))
+	server := net.NewServer(func() net.Queue { return queue.NewQueue(dups) })
 	server.Start(port)
 }
 

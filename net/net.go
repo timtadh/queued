@@ -5,6 +5,7 @@
 //  - DEQUE
 //  - HAS
 //  - SIZE
+//  - USE
 //
 // the server can send the following reponse status words
 //
@@ -25,6 +26,16 @@
 //
 // The client can send any command at any time. The server may at any command
 // respond with ERROR if there was a problem processing the command.
+//
+// USE name
+//
+//     Use the named queue. You never have to issue this command. If you do not
+//     you will automatically be using a queue named "default". If the queue does
+//     not this command will create one. The server should respond:
+//
+//          OK
+//
+//     name should have no spaces and should be utf8.
 //
 // ENQUE XXXXXXXXXXXXXXXX
 //
@@ -127,6 +138,7 @@ import (
 	logpkg "log"
 	"net"
 	"os"
+	"strings"
 )
 
 import (
@@ -141,11 +153,17 @@ func init() {
 
 type Server struct {
 	ln    *net.TCPListener
-	queue Queue
+	newQueue func() Queue
+	queues map[string]Queue
 }
 
-func NewServer(queue Queue) *Server {
-	return &Server{queue: queue}
+func NewServer(creator func() Queue) *Server {
+	s := &Server{
+		newQueue: creator,
+		queues: make(map[string]Queue),
+	}
+	s.queues["default"] = s.newQueue()
+	return s
 }
 
 /*
@@ -283,6 +301,7 @@ type Connection struct {
 	s    *Server
 	send chan<- []byte
 	recv <-chan byte
+	queueName string
 }
 
 func (self *Server) Connection(send chan<- []byte, recv <-chan byte) *Connection {
@@ -291,7 +310,12 @@ func (self *Server) Connection(send chan<- []byte, recv <-chan byte) *Connection
 		s: self,
 		send: send,
 		recv: recv,
+		queueName: "default",
 	}
+}
+
+func (c *Connection) queue() Queue {
+	return c.s.queues[c.queueName]
 }
 
 func (c *Connection) Serve() {
@@ -306,6 +330,7 @@ func (c *Connection) Serve() {
 	deque := c.Respond(c.Deque, base64.StdEncoding)
 	has := c.Respond(c.Has, echoEncoder{})
 	size := c.Respond(c.Size, echoEncoder{})
+	use := c.Respond(c.Use, echoEncoder{})
 	badDecode := c.Respond(c.BadDecode, base64.StdEncoding)
 
 	b64cmds := func(cmd string, data []byte) {
@@ -335,6 +360,8 @@ func (c *Connection) Serve() {
 			deque(rest)
 		case "SIZE":
 			size(rest)
+		case "USE":
+			use(rest)
 		default:
 			err := fmt.Errorf("bad command recieved, '%v'", command)
 			log.Println(err.Error())
@@ -369,11 +396,26 @@ func (c *Connection) BadDecode(line []byte) (string, []byte, error) {
 	return "", nil, fmt.Errorf("bad line '%v'", string(bytes.TrimSpace(line)))
 }
 
+func (c *Connection) Use(rest []byte) (string, []byte, error) {
+	if rest == nil {
+		return "", nil, fmt.Errorf("Must supply a queue name")
+	}
+	name := strings.TrimSpace(string(rest))
+	if name == "" {
+		return "", nil, fmt.Errorf("Must supply a (non-blank) queue name")
+	}
+	if _, has := c.s.queues[name]; !has {
+		c.s.queues[name] = c.s.newQueue()
+	}
+	c.queueName = name
+	return "OK", nil, nil
+}
+
 func (c *Connection) Enque(rest []byte) (string, []byte, error) {
 	if rest == nil {
 		return "", nil, fmt.Errorf("no data sent to queue")
 	} else {
-		return "", nil, c.s.queue.Enque(rest)
+		return "", nil, c.queue().Enque(rest)
 	}
 }
 
@@ -381,7 +423,7 @@ func (c *Connection) Has(rest []byte) (string, []byte, error) {
 	if len(rest) != sha256.Size {
 		return "", nil, fmt.Errorf("Expected a hash of size %v got %v", sha256.Size, len(rest))
 	}
-	if c.s.queue.Has(rest) {
+	if c.queue().Has(rest) {
 		return "TRUE", nil, nil
 	} else {
 		return "FALSE", nil, nil
@@ -389,17 +431,17 @@ func (c *Connection) Has(rest []byte) (string, []byte, error) {
 }
 
 func (c *Connection) Size(rest []byte) (string, []byte, error) {
-	return "SIZE", []byte(fmt.Sprint(c.s.queue.Size())), nil
+	return "SIZE", []byte(fmt.Sprint(c.queue().Size())), nil
 }
 
 func (c *Connection) Deque(rest []byte) (string, []byte, error) {
 	if rest != nil {
 		return "", nil, fmt.Errorf("recieved msg data when none was expected")
 	}
-	if c.s.queue.Empty() {
+	if c.queue().Empty() {
 		return "", nil, fmt.Errorf("queue is empty")
 	}
-	data, err := c.s.queue.Deque()
+	data, err := c.queue().Deque()
 	if err != nil {
 		return "", nil, err
 	}

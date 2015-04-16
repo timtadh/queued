@@ -47,6 +47,7 @@ and deque data. The client has the following verbs
 - DEQUE
 - HAS
 - SIZE
+- USE
 
 the server can send the following reponse status words
 
@@ -67,6 +68,16 @@ reponse it is ASCII.
 
 The client can send any command at any time. The server may at any command
 respond with ERROR if there was a problem processing the command.
+
+##### USE name
+
+Use the named queue. You never have to issue this command. If you do not
+you will automatically be using a queue named "default". If the queue does
+not this command will create one. The server should respond:
+
+     OK
+
+name should have no spaces and should be utf8.
 
 ##### ENQUE XXXXXXXXXXXXXXXX
 

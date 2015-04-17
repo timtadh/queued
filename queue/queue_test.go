@@ -60,7 +60,7 @@ func rand_bytes(length int) []byte {
 }
 
 func TestEnqueThenDeque(t *testing.T) {
-	q := NewQueue()
+	q := NewQueue(true)
 	l := make([][]byte, 0, 25)
 	for i := 0; i < rand.Intn(25)+10; i++ {
 		item := rand_bytes(rand.Intn(32) + 2)

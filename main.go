@@ -48,8 +48,8 @@ import (
 )
 
 import (
-	qnet "github.com/timtadh/queued/net"
-	queue "github.com/timtadh/queued/queue"
+	"github.com/timtadh/queued/net"
+	"github.com/timtadh/queued/queue"
 )
 
 var ErrorCodes map[string]int = map[string]int{
@@ -65,10 +65,11 @@ starts a queued daemon, a simple queue exposed on the network.
 
 Options
     -h, --help                          print this message
+    --allow-dups                        allow duplicate items in the queue.
+                                        This setting effects every queue
 
 Specs
-    <port>
-        A bindable port number.
+    <port>  A bindable port number.
 `
 
 func Usage(code int) {
@@ -92,18 +93,25 @@ func parse_int(str string) int {
 }
 
 func main() {
-
-	args, optargs, err := getopt.GetOpt(os.Args[1:], "h", []string{"help"})
+	short := "h"
+	long := []string{
+		"help",
+		"allow-dups",
+	}
+	args, optargs, err := getopt.GetOpt(os.Args[1:], short, long)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		Usage(ErrorCodes["opts"])
 	}
 
 	port := -1
+	dups := false
 	for _, oa := range optargs {
 		switch oa.Opt() {
 		case "-h", "--help":
 			Usage(0)
+		case "--allow-dups":
+			dups = true
 		}
 	}
 
@@ -114,6 +122,7 @@ func main() {
 	port = parse_int(args[0])
 
 	fmt.Println("starting")
-	server := qnet.NewServer(queue.NewQueue())
+	server := net.NewServer(func() net.Queue { return queue.NewQueue(dups) })
 	server.Start(port)
 }
+

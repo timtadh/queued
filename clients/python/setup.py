@@ -13,7 +13,7 @@ except ImportError:
     setuptools_kwargs = {}
 
 setup(name='queued',
-      version=0.1,
+      version=1.1,
       description=(
         'A client for queued'
       ),

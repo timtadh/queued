@@ -37,6 +37,7 @@ package queue
  */
 
 import (
+	"crypto/sha256"
 	"fmt"
 	logpkg "log"
 	"os"
@@ -44,10 +45,21 @@ import (
 	"sync"
 )
 
+import (
+	"github.com/timtadh/data-structures/hashtable"
+	"github.com/timtadh/data-structures/types"
+)
+
 var log *logpkg.Logger
 
 func init() {
 	log = logpkg.New(os.Stderr, "queued/queue> ", logpkg.Ltime|logpkg.Lshortfile)
+}
+
+// Generate a sha256 hash of the data
+func Hash(data []byte) []byte {
+	h := sha256.Sum256(data)
+	return types.ByteSlice(h[:])
 }
 
 type node struct {
@@ -59,16 +71,20 @@ type Queue struct {
 	head   *node
 	tail   *node
 	length int
+	index  *hashtable.LinearHash
 	lock   *sync.Mutex
+	allowDups bool
 }
 
 /* Construct a new queue */
-func NewQueue() *Queue {
+func NewQueue(allowDups bool) *Queue {
 	return &Queue{
 		head:   nil,
 		tail:   nil,
 		length: 0,
+		index: hashtable.NewLinearHash(),
 		lock:   new(sync.Mutex),
+		allowDups: allowDups,
 	}
 }
 
@@ -76,6 +92,26 @@ func NewQueue() *Queue {
 func (self *Queue) Enque(data []byte) error {
 	self.lock.Lock()
 	defer self.lock.Unlock()
+
+	h := types.ByteSlice(Hash(data))
+	has := self.index.Has(h)
+	if !self.allowDups && has {
+		return nil
+	} else if has {
+		i, err := self.index.Get(h)
+		if err != nil {
+			return err
+		}
+		err = self.index.Put(h, types.Int(int(i.(types.Int)) + 1))
+		if err != nil {
+			return err
+		}
+	} else {
+		err := self.index.Put(h, types.Int(1))
+		if err != nil {
+			return err
+		}
+	}
 
 	node := &node{next: nil, data: data}
 
@@ -123,6 +159,28 @@ func (self *Queue) Deque() (data []byte, err error) {
 	self.head = node.next
 	self.length -= 1
 
+	h := types.ByteSlice(Hash(node.data))
+	if self.index.Has(h) {
+		i, err := self.index.Get(h)
+		if err != nil {
+			return nil, err
+		}
+		j := int(i.(types.Int)) - 1
+		if j <= 0 {
+			_, err = self.index.Remove(h)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			err = self.index.Put(h, types.Int(j))
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("integrity error, index did not have data")
+	}
+
 	return node.data, nil
 }
 
@@ -134,10 +192,17 @@ func (self *Queue) Empty() bool {
 }
 
 /* How many items are on the queue? */
-func (self *Queue) Length() int {
+func (self *Queue) Size() int {
 	self.lock.Lock()
 	defer self.lock.Unlock()
 	return self.length
+}
+
+func (self *Queue) Has(hash []byte) bool {
+	if len(hash) != sha256.Size {
+		return false
+	}
+	return self.index.Has(types.ByteSlice(hash))
 }
 
 func (self *node) String() string {

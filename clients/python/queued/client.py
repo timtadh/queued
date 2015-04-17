@@ -33,9 +33,15 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 '''
 
-
-import sys, os, socket, threading, time
+import sys
+import os
+import socket
+import threading
+import time
+import hashlib
+import binascii
 from collections import deque
+
 
 class Queue(object):
 
@@ -77,6 +83,70 @@ class Queue(object):
             if from_read:
                 print >>sys.stderr, "read thread closed it"
 
+    def use(self, name):
+        name = name.strip()
+        with self.queue_lock:
+            msg = "USE %s\n" % name
+            self.conn.send(msg)
+            self.get_use_response()
+
+    def get_use_response(self):
+        cmd, data = self.get_line()
+        if cmd == "ERROR":
+            data = data.decode('base64')
+            raise Exception(data)
+        elif cmd != "OK":
+            raise Exception, "bad command recieved %s" % cmd
+
+    def size(self):
+        with self.queue_lock:
+            msg = "SIZE\n"
+            self.conn.send(msg)
+            return self.get_size_response()
+
+    def get_size_response(self):
+        cmd, data = self.get_line()
+        if cmd == "ERROR":
+            data = data.decode('base64')
+            raise Exception(data)
+        elif cmd != "SIZE":
+            raise Exception, "bad command recieved %s" % cmd
+        else:
+            return int(data)
+
+    def hash(self, data):
+        return hashlib.sha256(data).digest().encode('base64').strip()
+
+    def has_hash(self, hash):
+        try:
+            hash.decode('base64')
+        except binascii.Error, e:
+            raise Exception("Hash must be base64 encoded. Use the hash function")
+        h = hash.strip()
+        with self.queue_lock:
+            msg = "HAS " + h + "\n"
+            self.conn.send(msg)
+            return self.get_has_response()
+
+    def has(self, data):
+        h = self.hash(data)
+        with self.queue_lock:
+            msg = "HAS " + h + "\n"
+            self.conn.send(msg)
+            return self.get_has_response()
+
+    def get_has_response(self):
+        cmd, data = self.get_line()
+        if cmd == "ERROR":
+            data = data.decode('base64')
+            raise Exception(data)
+        elif cmd == "TRUE":
+            return True
+        elif cmd == "FALSE":
+            return False
+        else:
+            raise Exception("bad server response %s %s" % (cmd, data))
+
     def enque(self, data):
         with self.queue_lock:
             msg = "ENQUE " + data.encode('base64').replace('\n', '') + '\n'
@@ -86,6 +156,7 @@ class Queue(object):
     def get_enque_response(self):
         cmd, data = self.get_line()
         if cmd == "ERROR":
+            data = data.decode('base64')
             raise Exception(data)
         elif cmd != "OK":
             raise Exception, "bad command recieved %s" % cmd
@@ -98,12 +169,14 @@ class Queue(object):
     def get_deque_response(self):
         cmd, data = self.get_line()
         if cmd == "ERROR":
+            data = data.decode('base64')
             if data == "queue is empty":
                 raise IndexError(data)
             raise Exception(data)
         elif cmd != "ITEM":
             raise Exception, "bad command recieved %s" % cmd
         assert cmd == "ITEM"
+        data = data.decode('base64')
         return data
 
     def listen(self):
@@ -142,7 +215,7 @@ class Queue(object):
         command = split[0]
         rest = None
         if len(split) > 1:
-            rest = split[1].decode('base64')
+            rest = split[1].strip()
 
         return command, rest
 
@@ -153,7 +226,7 @@ def _loop(queue):
         except:
             break
         split = line.split(' ', 1)
-        command = split[0]
+        command = split[0].lower().strip()
         data = None
         if len(split) > 1:
             data = split[1]
@@ -161,11 +234,25 @@ def _loop(queue):
             queue.enque(data)
         elif command == 'enque' and data is None:
             print >>sys.stderr, "bad input, need data"
+        elif command == "has" and data is not None:
+            print queue.has(data)
+        elif command == 'has' and data is None:
+            print >>sys.stderr, "bad input, need data"
+        elif command == "use" and data is not None:
+            queue.use(data)
+        elif command == 'use' and data is None:
+            print >>sys.stderr, "bad input, need data"
+        elif command == "size":
+            print queue.size()
         elif command == "deque":
             try:
                 print queue.deque()
             except IndexError:
                 print "queue is empty"
+        elif command == '':
+            pass
+        else:
+            print >>sys.stderr, "bad command"
 
 def main():
     queue = Queue('localhost', 9001)

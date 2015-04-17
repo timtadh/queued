@@ -31,11 +31,15 @@
  */
 package edu.cwru.selab.queued;
 
+import scala.io.Source;
+
 import java.net.Socket;
 import java.io;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.security.MessageDigest;
+
 import org.apache.commons.codec.binary.Base64;
-import scala.io.Source;
+
 
 class Queued(host:String, port:Int) {
 
@@ -85,9 +89,24 @@ class Queued(host:String, port:Int) {
     val command = split(0)
     var rest = ""
     if (split.length > 1) {
-      rest = new String(Base64.decodeBase64(split(1).getBytes()));
+      rest = split(1)
     }
     return new Pair[String, String](command, rest)
+  }
+
+  def use(name:String) {
+    send("USE " + name + "\n")
+    check_use_response()
+  }
+
+  def check_use_response() {
+    val line = get_line()
+    if (line._1 == "ERROR") {
+      val err = new String(Base64.decodeBase64(line._2.getBytes()));
+      throw new Exception(err)
+    } else if (line._1 != "OK") {
+      throw new Exception("Bad command recieved")
+    }
   }
 
   def enque(data:String) {
@@ -98,7 +117,8 @@ class Queued(host:String, port:Int) {
   def check_enque_response() {
     val line = get_line()
     if (line._1 == "ERROR") {
-      throw new Exception(line._2)
+      val err = new String(Base64.decodeBase64(line._2.getBytes()));
+      throw new Exception(err)
     } else if (line._1 != "OK") {
       throw new Exception("Bad command recieved")
     }
@@ -112,28 +132,82 @@ class Queued(host:String, port:Int) {
   def get_deque_response():String = {
     val line = get_line()
     if (line._1 == "ERROR") {
-      if (line._2 == "queue is empty") {
+      val err = new String(Base64.decodeBase64(line._2.getBytes()));
+      if (err == "queue is empty") {
         throw new java.lang.IndexOutOfBoundsException("queue is empty")
       }
-      throw new Exception(line._2)
+      throw new Exception(err)
     } else if (line._1 != "ITEM") {
       throw new Exception("Bad command recieved")
     }
-    return line._2
+    val data = new String(Base64.decodeBase64(line._2.getBytes()));
+    return data
   }
 
+  def hash(data:String):String = {
+    val h = MessageDigest.getInstance("SHA-256")
+    val d = h.digest(data.getBytes())
+    return new String(Base64.encodeBase64(d))
+  }
+
+  def has(data:String):Boolean = {
+    send("HAS " + hash(data) + "\n")
+    get_has_response()
+  }
+
+  def get_has_response():Boolean = {
+    val line = get_line()
+    if (line._1 == "ERROR") {
+      val err = new String(Base64.decodeBase64(line._2.getBytes()));
+      throw new Exception(err)
+    } else if (line._1 == "TRUE") {
+      return true
+    } else if (line._1 == "FALSE") {
+      return false
+    }
+    throw new Exception("Bad command recieved")
+  }
+
+  def size():Int = {
+    send("SIZE" + "\n")
+    get_size_response()
+  }
+
+  def get_size_response():Int = {
+    val line = get_line()
+    if (line._1 == "ERROR") {
+      val err = new String(Base64.decodeBase64(line._2.getBytes()));
+      throw new Exception(err)
+    } else if (line._1 != "SIZE") {
+      throw new Exception("Bad command recieved")
+    }
+    line._2.toInt
+  }
 }
 
 object MainQueued {
   def main(args: Array[String]) {
     val queue = new Queued("localhost", 9001)
     try {
+      println(queue.size())
       queue.enque("asdf")
-      queue.enque("asdf")
-      queue.enque("asdf")
+      queue.enque("asf")
+      queue.enque("assdf")
+      queue.use("wizard")
+      println(queue.size())
+      queue.use("default")
+      println(queue.size())
+      println(queue.has("asdf"))
+      println(queue.has("asf"))
+      println(queue.has("assdf"))
       println(queue.deque())
       println(queue.deque())
+      println(queue.size())
       println(queue.deque())
+      println(queue.size())
+      println(queue.has("asdf"))
+      println(queue.has("asf"))
+      println(queue.has("assdf"))
       println(queue.deque())
     } catch {
       case e:java.lang.IndexOutOfBoundsException => println("queue empty")

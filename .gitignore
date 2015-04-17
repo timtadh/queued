@@ -2,4 +2,6 @@
 *.swo
 *.pyc
 queued
+pkg
+bin
 

@@ -1,6 +1,6 @@
 name := "queued_client"
 
-version := "0.01"
+version := "1.1"
 
 scalaVersion := "2.10.2"
 
